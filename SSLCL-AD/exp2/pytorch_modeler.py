@@ -86,17 +86,57 @@ def make_dataloader(train_paths, machine_type):
     return dataloaders_dict
 
 class CenterLoss(nn.Module):
-    def __init__(self, num_classes=10, num_feature=2):
+    """Center loss.
+
+    Reference:
+    Wen et al. A Discriminative Feature Learning Approach for Deep Face Recognition.
+    ECCV 2016.
+
+    Args:
+        num_classes (int): number of classes.
+        feat_dim (int): feature dimension.
+    """
+
+    def __init__(self, num_classes=10, feat_dim=2, use_gpu=True):
         super(CenterLoss, self).__init__()
         self.num_classes = num_classes
-        self.num_feature = num_feature
-        #self.use_gpu = use_gpu
-        self.centers = nn.Parameter(torch.randn(self.num_classes, self.num_feature).cuda())
+        self.feat_dim = feat_dim
+        self.use_gpu = use_gpu
+
+        if self.use_gpu:
+            self.centers = nn.Parameter(torch.randn(
+                self.num_classes, self.feat_dim).cuda())
+        else:
+            self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
 
     def forward(self, x, labels):
-        center = self.centers[labels].cuda()
-        #dist = (x-center).pow(2)
-        loss = F.cosine_similarity(x, center)
+        """
+        Args:
+            x: feature matrix with shape (batch_size, feat_dim).
+            labels: ground truth labels with shape (batch_size).
+        """
+        #print(x.shape)
+        batch_size = x.size(0)
+        distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size,
+                                                                  self.num_classes) + \
+            torch.pow(self.centers, 2).sum(dim=1, keepdim=True).expand(
+                self.num_classes, batch_size).t()
+        #print('distmat', distmat.shape)
+        #print(x.shape, self.centers.t().shape)
+        distmat.addmm_(x, self.centers.t(), beta=1, alpha=-2)
+
+        classes = torch.arange(self.num_classes).long()
+        if self.use_gpu:
+            classes = classes.cuda()
+        labels = labels.unsqueeze(1).expand(batch_size, self.num_classes)
+        mask = labels.eq(classes.expand(batch_size, self.num_classes))
+        #print(distmat.shape)
+        dist = distmat * mask.float()
+        #print(dist.clamp(min=1e-12, max=1e+12).shape)
+
+        prob = dist.clamp(min=1e-12, max=1e+12)
+        loss = prob.mean(dim=1)
+
         return loss
 
 
@@ -126,7 +166,7 @@ def train_net(net, dataloaders_dict, optimizer, num_epochs, writer, model_out_pa
         net.resnet.layer3[i].register_forward_hook(hook)
     for i in range(len(net.resnet.layer4)):
         net.resnet.layer4[i].register_forward_hook(hook)
-    center_loss = CenterLoss(num_classes=num_classes, num_feature=3776)
+    center_loss = CenterLoss(num_classes=1, feat_dim=3776)
     out_fc = FC_block(3776, 3776)
     
     # GPUが使えるならGPUモードに
