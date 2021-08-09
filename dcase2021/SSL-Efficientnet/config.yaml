@@ -1,0 +1,22 @@
+IO_OPTION:
+  INPUT_ROOT: '/media/hiroki/HDD1TB/research/dcase2021_task2/datasets'
+  OUTPUT_ROOT: '/media/hiroki/HDD1TB/research/DCASE_experiments/SSL-Efficientnet/dcase2021_task2'
+  PREMODEL_ROOT: '/home/hiroki/research/dcase2021_task2/input/PANNs/pre_trained_model/ResNet38_mAP=0.434.pth'
+  
+param:
+  # feature
+  sample_rate: 16000
+  window_size: 2048
+  hop_size: 512
+  mel_bins: 256
+  fmin: 50
+  fmax: 7800
+  n_crop_frames : 33
+  # dataloader
+  lr : 0.001
+  batch_size : 400
+  shuffle : True
+  num_epochs : 100
+  # etc
+  devise : 'cuda'
+  max_fpr : 0.1
