@@ -54,9 +54,9 @@ def set_seed(seed: int = 42):
 ############################################################################
 # Make Dataloader
 ############################################################################
-def make_dataloader(train_paths, machine_type):
+def make_dataloader(train_paths, machine_type, mode='training'):
     transform = transforms.Compose([
-        prep.extract_crop_melspectrogram(),
+        prep.extract_crop_melspectrogram(mode=mode),
         prep.ToTensor()
     ])
     train_dataset = prep.DCASE_task2_Dataset(train_paths[machine_type]['train'], transform=transform)
@@ -101,17 +101,39 @@ def calc_auc(y_true, y_pred):
     #logger.info("pAUC : {}".format(p_auc))
     return auc, p_auc
 
-# training function
-def extract_net(net, dataloaders_dict):
+def make_subseq(X, hop_mode=False):
+    
+    n_mels = config['param']['mel_bins']
+    n_crop_frames = config['param']['n_crop_frames']
+    n_hop_frames = config['param']['extract_hop_len']
+    total_frames = len(X.shape[3]) - n_crop_frames + 1
+    subseq = []
+    # generate feature vectors by concatenating multiframes
+    for frame_idx in range(total_frames):
+        subseq.append(X[:,:,frame_idx:(frame_idx+1)*n_crop_frames])
+    subseq = torch.cat(subseq, dim=0)
+    # reduce sample
+    if hop_mode:
+        vectors = subseq[:,:,:: n_hop_frames]
+    
+    return vectors
+
+def extract_net(net, dataloaders_dict, phases=['train', 'valid_source', 'valid_target']):
     outputs = []
     def hook(module, input, output):
         #print(output.shape)
         output = output.cpu()
         outputs.append(output.mean(dim=(2,3)))
-    
-    for i in range(len(net.blocks)):
-        for j in range(len(net.blocks[i])):
-            net.blocks[i][j].register_forward_hook(hook)
+    # M1 ~ M9
+    net.effnet.blocks[0][0].register_forward_hook(hook)
+    net.effnet.blocks[1][0].register_forward_hook(hook)
+    net.effnet.blocks[2][0].register_forward_hook(hook)
+    net.effnet.blocks[3][0].register_forward_hook(hook)
+    net.effnet.blocks[4][0].register_forward_hook(hook)
+    net.effnet.blocks[5][0].register_forward_hook(hook)
+    net.effnet.blocks[6][0].register_forward_hook(hook)
+    net.effnet.blocks[6][1].act1.register_forward_hook(hook)
+    net.effnet.blocks[6][1].register_forward_hook(hook)
     #for i in range(len(net.layer2)):
     #net.layer2[-1].register_forward_hook(hook)
     #for i in range(len(net.layer3)):
@@ -133,20 +155,28 @@ def extract_net(net, dataloaders_dict):
     
     output_dicts = {}
     
-    for phase in ['train', 'valid_source', 'valid_target']:
+    #for phase in ['train', 'valid_source', 'valid_target']:
+    for phase in phases:
         net.eval()
         M_means = []
         labels = []
         wav_names = []
+        #n_crop_frames = config['param']['n_crop_frames']
+        #extract_hop_len = config['param']['extract_hop_len']
         for sample in tqdm(dataloaders_dict[phase]):
             wav_name = sample['wav_name']
             wav_names = wav_names + wav_name
             
-            input = sample['feature']
-            print(input.shape)
-            plt.imshow(input[0,0,:,:].to('cpu'), aspect='auto')
-            plt.show()
-            input = input.to(device)
+            print(sample['feature'].shape)
+            input = sample['feature'].to(device)
+            # print(input.shape)
+            # plt.imshow(input[0,0,:,:].to('cpu'), aspect='auto')
+            # plt.show()
+            #for i in range(input.size()[0]):
+            #    per_input = input[i,:,:]
+            #x = input[:,:,:,:n_crop_frames-1].to(device)
+            #x = input.to(device)
+            #input = input.to(device)
             label = sample['label'].to('cpu')
             labels.append(label)
 
@@ -154,9 +184,7 @@ def extract_net(net, dataloaders_dict):
                 _ = net(input)  # (batch_size,input(2D)) 
                 outputs = torch.cat(outputs, dim=1).cpu()
                 M_means.append(outputs)
-                print(outputs.shape)
                 outputs = []
-                #M_means.append(output_dict['M_means'].to('cpu'))
                 
         M_means = torch.cat(M_means, dim=0).detach().numpy().copy()
         labels = torch.cat(labels, dim=0).detach().numpy().copy()

@@ -12,6 +12,7 @@ param:
   fmin: 50
   fmax: 7800
   n_crop_frames : 33
+  extract_hop_len : 5
   # dataloader
   lr : 0.001
   batch_size : 400

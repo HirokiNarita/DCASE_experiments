@@ -19,7 +19,7 @@ with open("./config.yaml", 'rb') as f:
 
 def random_crop(X):
     n_crop_frames = config['param']['n_crop_frames']
-    total_frames = X.shape[0]
+    total_frames = X.shape[1]
     bgn_frame = torch.randint(low=0, high=total_frames - n_crop_frames, size=(1,))[0]
     X = X[:, bgn_frame: bgn_frame+n_crop_frames]
     return X
@@ -32,8 +32,9 @@ class extract_crop_melspectrogram(object):
     ----------
     sound_data : logmelspectrogram
     """
-    def __init__(self, sound_data=None):
+    def __init__(self, sound_data=None, mode='training'):
         self.sound_data = sound_data
+        self.mode = mode
     
     def __call__(self, sample):
 
@@ -62,7 +63,9 @@ class extract_crop_melspectrogram(object):
         X = (
             20.0 / power * torch.log10(X + eps)
         )
-        X = random_crop(X)
+        print(X.shape)
+        if self.mode == 'training':
+            X = random_crop(X)
         X = torch.stack([X,X,X], dim=0)
         ############################
         self.sound_data = X
